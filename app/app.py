@@ -5,4 +5,4 @@ app = FastAPI(title="Agent Failure Lab", version="0.1.0")
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok","message":"Agent Failure Lab is running"}
