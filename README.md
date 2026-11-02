@@ -113,6 +113,7 @@ Agent Failure Lab 是一个用于研究和评估 AI Agent 可靠性的工程项�
 agent-failure-lab/
 ├── app/
 │   ├── app.py
+│   ├── models.py
 │   ├── agent/
 │   ├── tools/
 │   ├── faults/
@@ -155,6 +156,10 @@ agent-failure-lab/
 
 项目目前处于基础工程与需求冻结阶段。
 
-已建立基础 FastAPI 应用和 `/health` 健康检查接口，并编写对应测试。Agent 执行循环、工具调用、故障注入、持久化、评测及演示页面仍需按照开发计划逐步实现。
+已建立基础 FastAPI 应用和 `/health` 健康检查接口，并编写对应测试。
+
+已完成 Day 12 数据模型：`app/models.py` 定义 `GetOrderArgs`、`CreateTicketArgs`、`TaskRequest`、`ToolCall`、`ToolResult`、`ExecutionEvent`，配套 10 个模型测试。其中 `ToolCall` 用 `Literal` 限死工具名，并用 `@model_validator(mode="after")` 校验工具名与参数模型必须一致。
+
+Agent 执行循环、工具调用、故障注入、持久化、评测及演示页面仍需按照开发计划逐步实现。
 
 项目的功能清单表示开发目标，不等同于已经完成的功能。
