@@ -171,7 +171,7 @@ class ToolResult(BaseModel):
     """
 
     call_id: str = Field(min_length=1)
-    tool_name: Literal["get_order", "create_ticket"]
+    tool_name: str = Field(min_length=1)
     success: bool
     data: dict[str, Any] | None = None
     error: str | None = None
