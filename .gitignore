@@ -6,3 +6,7 @@ __pycache__/
 .vscode/
 .idea/
 *.egg-info/
+# SQLite 数据库文件及运行时辅助文件
+*.db
+*.db-shm
+*.db-wal
