@@ -5,18 +5,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.models import CreateTicketArgs
-from tools.tickets import create_ticket,TICKETS
-
-#每个测试前清空虚构工单列表
-#避免不同测试之间互相影响
-@pytest.fixture(autouse=True)
-def clear_tickets():
-    TICKETS.clear()
-    yield
-    TICKETS.clear()
+from tools.tickets import create_ticket
+from storage import database
 
 #测试正常创建工单
-def test_create_ticket_success():
+def test_create_ticket_success(test_database):
+
     args = CreateTicketArgs(title="订单异常", 
                             description="物流未更新",)
     result = create_ticket("call-001",args)
@@ -27,7 +21,27 @@ def test_create_ticket_success():
     assert result.data["title"] == "订单异常"
     assert result.data["status"] == "open"
     assert result.error is None
-    assert len(TICKETS) == 1
+
+    conn = database.get_connection()
+
+    try:
+        row = conn.execute(
+            """
+        SELECT ticket_id,title,description,status
+        FROM tickets
+        WHERE ticket_id = ?
+        """,
+        ("TICKET-001",)
+        ).fetchone()
+
+        #验证数据库是否保存
+        assert row is not None
+        assert row["title"] == "订单异常"
+        assert row["description"] =="物流未更新"
+        assert row["status"] == "open"
+
+    finally:
+        conn.close()
 
 #测试连续创建两个工单
 def test_create_ticket_multiple():

@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from app.models import GetOrderArgs
 from tools.orders import get_order
 
-def test_get_order_success():
+def test_get_order_success(test_database):
     args = GetOrderArgs(order_id="ORD-001")
 
     result = get_order("call-001",args)
@@ -15,7 +15,7 @@ def test_get_order_success():
     assert result.data["status"] == "paid"
     assert result.error is None
 
-def test_get_order_not_found():
+def test_get_order_not_found(test_database):
     args = GetOrderArgs(order_id="ORD-999")
 
     result = get_order("call-002",args)
@@ -28,7 +28,7 @@ def test_get_order_rejects_empty_order_id():
     with pytest.raises(ValidationError):
         GetOrderArgs(order_id="")
 
-def test_get_order_does_not_modify_original_data():
+def test_get_order_does_not_modify_original_data(test_database):
     args = GetOrderArgs(order_id="ORD-001")
 
     result = get_order("call-003",args)
