@@ -4,7 +4,8 @@ from app.models import ToolResult
 from tools import tickets
 
 #测试正常查询工单
-def test_execute_get_order_success():
+#使用临时数据库，不依赖本地 agent.db 中是否恰好存在这条订单
+def test_execute_get_order_success(test_database):
     result = execute_tool(
         name="get_order",
         args={"order_id":"ORD-001"},
