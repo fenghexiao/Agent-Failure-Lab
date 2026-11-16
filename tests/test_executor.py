@@ -15,20 +15,50 @@ def test_execute_get_order_success():
     assert result.data["order_id"]=="ORD-001"
 
 #测试正常创建工单
-def test_execute_creat_ticket_success(monkeypatch):
-    #使用独立列表
-    monkeypatch.setattr(tickets,"TICKETS",[])
+# 使用临时数据库，避免影响正式项目数据
+def test_execute_creat_ticket_success(test_database):
 
+    # 第一步：通过统一执行器调用创建工单工具
     result = execute_tool(
         name="create_ticket",
         args={
-            "title":"测试工单",
-            "description":"这是一个自动化测试"
+            "title": "订单异常",
+            "description": "物流未更新"
         },
-        call_id="test-002"
+        call_id="call-001"
     )
+
+    # 第二步：验证执行器正确返回工具结果
     assert result.success is True
-    assert result.data["title"]=="测试工单"
+    assert result.call_id == "call-001"
+    assert result.tool_name == "create_ticket"
+    assert result.data["ticket_id"] == "TICKET-001"
+    assert result.data["title"] == "订单异常"
+    assert result.data["status"] == "open"
+
+    # 第三步：验证执行器调用后的数据库持久化结果
+    from storage.database import get_connection
+
+    conn = get_connection()
+
+    try:
+        row = conn.execute(
+            """
+            SELECT ticket_id, title, status
+            FROM tickets
+            WHERE ticket_id = ?
+            """,
+            (result.data["ticket_id"],)
+        ).fetchone()
+
+        assert row is not None
+        assert row["title"] == "订单异常"
+        assert row["status"] == "open"
+
+    finally:
+        # 无论测试是否成功，都关闭数据库连接
+        conn.close()
+
 
 #测试未知工具必须被拒绝
 def test_execute_unknown_tool():
