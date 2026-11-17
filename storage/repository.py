@@ -1,3 +1,5 @@
+import json
+from app.models import ExecutionEvent
 #Repository 数据访问层
 from storage.database import get_connection
 
@@ -130,3 +132,90 @@ def create_ticket_record(title: str, description: str) -> dict:
     finally:
         conn.close()
 
+#将执行事件持久到SQLite
+def insert_execution_event(event:ExecutionEvent)->None:
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO execution_events (
+            event_id,
+            task_id,
+            event_type,
+            timestamp,
+            tool_name,
+            status,
+            latency_ms,
+            error_type,
+            details
+            )
+            VALUES(?,?,?,?,?,?,?,?,?)
+            """,
+        (
+            event.event_id,
+            event.task_id,
+            event.event_type,
+            event.timestamp.isoformat(),
+            event.tool_name,
+            event.status,
+            event.latency_ms,
+            event.error_type,
+            json.dumps(event.details,ensure_ascii=False),
+        )
+        )
+
+        conn.commit()
+
+    except Exception:
+        #异常时回滚
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+# 返回按时间顺序排列的 ExecutionEvent 对象列表
+def find_execution_events(task_id: str) -> list[ExecutionEvent]:
+
+    # 建立数据库连接
+    conn = get_connection()
+
+    try:
+        # 使用参数化 SQL 查询指定任务的所有事件
+        cursor = conn.execute(
+            """
+            SELECT *
+            FROM execution_events
+            WHERE task_id = ?
+            ORDER BY timestamp ASC, rowid ASC
+            """,
+            (task_id,)
+        )
+
+        # 获取全部匹配记录
+        rows = cursor.fetchall()
+
+        # 将 SQLite 数据转换回 Pydantic 模型
+        events = []
+
+        for row in rows:
+            event = ExecutionEvent(
+                event_id=row["event_id"],
+                task_id=row["task_id"],
+                event_type=row["event_type"],
+                timestamp=row["timestamp"],
+                tool_name=row["tool_name"],
+                status=row["status"],
+                latency_ms=row["latency_ms"],
+                error_type=row["error_type"],
+                details=json.loads(row["details"])
+            )
+
+            events.append(event)
+
+        return events
+
+    finally:
+        # 无论查询是否成功，都关闭数据库连接
+        conn.close()

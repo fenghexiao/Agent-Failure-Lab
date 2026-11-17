@@ -1,6 +1,12 @@
 # Repository 自动化测试
 # 使用 pytest 临时数据库隔离测试数据
+from datetime import datetime, timezone
 
+from storage.repository import find_execution_events
+import json
+
+from app.models import ExecutionEvent
+from storage.repository import insert_execution_event
 import sqlite3
 import pytest
 
@@ -205,5 +211,128 @@ def test_create_ticket_record_generates_next_id(tmp_path, monkeypatch):
     finally:
         # 无论测试成功或失败，都关闭数据库连接
         conn.close()
+
+# 使用独立的临时 SQLite 数据库，不污染正式数据
+def test_insert_execution_event(test_database):
+
+    # 第一步：构造一条工具执行成功事件
+    event = ExecutionEvent(
+        event_id="evt-001",
+        task_id="task-001",
+        event_type="tool_result",
+        tool_name="get_order",
+        status="success",
+        latency_ms=12.5,
+        details={"result": "success"}
+    )
+
+    # 第二步：通过 Repository 保存事件
+    insert_execution_event(event)
+
+    # 第三步：重新建立连接，查询 SQLite 中的事件
+    conn = database.get_connection()
+
+    try:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM execution_events
+            WHERE event_id = ?
+            """,
+            ("evt-001",)
+        ).fetchone()
+
+        # 第四步：验证事件确实存在
+        assert row is not None
+
+        # 第五步：验证核心执行指标
+        assert row["task_id"] == "task-001"
+        assert row["event_type"] == "tool_result"
+        assert row["tool_name"] == "get_order"
+        assert row["status"] == "success"
+        assert row["latency_ms"] == 12.5
+        assert row["error_type"] is None
+
+        # 第六步：验证 JSON 数据能够正确还原
+        details = json.loads(row["details"])
+        assert details == {"result": "success"}
+
+        # 第七步：验证数据库保存了时间戳
+        assert row["timestamp"] == event.timestamp.isoformat()
+
+    finally:
+        # 无论测试是否成功，都关闭连接
+        conn.close()
+
+
+#验证执行事件的查询顺序与任务隔离
+def test_find_execution_events(test_database):
+
+    # 第一步：准备三条事件
+    # 故意让插入顺序和时间顺序不一致
+    event_late = ExecutionEvent(
+        event_id="evt-002",
+        task_id="task-001",
+        event_type="tool_result",
+        timestamp=datetime(
+            2026, 11, 17, 10, 0, 2,
+            tzinfo=timezone.utc
+        ),
+        tool_name="get_order",
+        status="success",
+        latency_ms=12.5,
+        details={"result": "success"}
+    )
+
+    event_early = ExecutionEvent(
+        event_id="evt-001",
+        task_id="task-001",
+        event_type="task_started",
+        timestamp=datetime(
+            2026, 11, 17, 10, 0, 0,
+            tzinfo=timezone.utc
+        )
+    )
+
+    event_other_task = ExecutionEvent(
+        event_id="evt-003",
+        task_id="task-002",
+        event_type="error",
+        timestamp=datetime(
+            2026, 11, 17, 10, 0, 1,
+            tzinfo=timezone.utc
+        ),
+        status="failed",
+        error_type="UNKNOWN_TOOL"
+    )
+
+    # 第二步：故意打乱插入顺序
+    insert_execution_event(event_late)
+    insert_execution_event(event_other_task)
+    insert_execution_event(event_early)
+
+    # 第三步：只查询 task-001
+    events = find_execution_events("task-001")
+
+    # 第四步：验证只返回该任务的两条事件
+    assert len(events) == 2
+
+    # 第五步：验证按照时间排序，而不是插入顺序
+    assert [e.event_id for e in events] == [
+        "evt-001",
+        "evt-002"
+    ]
+
+    # 第六步：验证查询结果重新还原为 Pydantic 模型
+    assert all(isinstance(e, ExecutionEvent) for e in events)
+
+    # 第七步：验证重要字段及 JSON 数据正确还原
+    assert events[1].tool_name == "get_order"
+    assert events[1].status == "success"
+    assert events[1].latency_ms == 12.5
+    assert events[1].details == {"result": "success"}
+
+    # 第八步：不存在的任务应该返回空列表
+    assert find_execution_events("task-999") == []
 
 

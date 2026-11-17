@@ -41,6 +41,22 @@ def init_db():
         )
         """)
 
+         # 创建Agent执行事件表
+         # 每条记录描述一次任务执行过程中发生的事件
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS execution_events (
+            event_id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            tool_name TEXT,
+            status TEXT,
+            latency_ms REAL,
+            error_type TEXT,
+            details TEXT NOT NULL DEFAULT '{}'
+        )
+        """)
+
         #提交数据库初始化操作
         conn.commit()
 

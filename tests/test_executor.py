@@ -1,11 +1,10 @@
 #统一执行器自动化测试
+from storage.repository import find_execution_events
 from agent.executor import execute_tool
 from app.models import ToolResult
-from tools import tickets
 
 #测试正常查询工单
-#使用临时数据库，不依赖本地 agent.db 中是否恰好存在这条订单
-def test_execute_get_order_success(test_database):
+def test_execute_get_order_success():
     result = execute_tool(
         name="get_order",
         args={"order_id":"ORD-001"},
@@ -102,5 +101,49 @@ def test_execute_tool_exception(monkeypatch):
     assert result.success is False
     assert result.error == "TOOL_EXECUTION_ERROR"
 
-    
+
+# Day 16 - 验证执行器自动记录成功事件
+# 使用临时 SQLite 数据库，不影响正式数据
+def test_execute_tool_records_success_event(test_database):
+
+    # 第一步：通过执行器查询已有订单
+    result = execute_tool(
+        name="get_order",
+        args={"order_id": "ORD-001"},
+        call_id="call-event-001"
+    )
+
+    # 第二步：确认工具本身执行成功
+    assert result.success is True
+
+    # 第三步：查询执行器自动写入的事件
+    # 当前阶段暂时使用 call_id 作为 task_id
+    events = find_execution_events("call-event-001")
+
+    # 一次工具执行应该产生一条结果事件
+    assert len(events) == 1
+
+    event = events[0]
+
+    # 第四步：验证事件的核心字段
+    assert event.event_type == "tool_result"
+    assert event.task_id == "call-event-001"
+    assert event.tool_name == "get_order"
+    assert event.status == "success"
+    assert event.error_type is None
+
+    # 第五步：验证耗时是实际计算的非负数
+    assert event.latency_ms is not None
+    assert event.latency_ms >= 0
+
+    # 第六步：验证事件只保存安全摘要
+    assert event.details == {
+        "call_id": "call-event-001",
+        "success": True
+    }
+
+    # 不允许原始工具参数或业务结果进入事件详情
+    assert "order_id" not in event.details
+    assert "amount" not in event.details
+
 

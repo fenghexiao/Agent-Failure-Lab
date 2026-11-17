@@ -238,3 +238,16 @@ class ExecutionEvent(BaseModel):
     # │ test_execution_event_details_are_independent 就在测这个。│
     # └─────────────────────────────────────────────────────────┘
     details: dict[str, Any] = Field(default_factory=dict)
+
+    #工具执行指标，
+    tool_name: str | None = None
+
+    #当前执行状态
+    status: Literal["pending","success","failed"] |None = None
+
+    #本次工具执行耗时
+    latency_ms: float | None = Field(default=None,ge=0)
+
+    #稳定的错误类型
+    error_type: str | None = None
+
