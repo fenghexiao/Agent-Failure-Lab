@@ -147,3 +147,43 @@ def test_execute_tool_records_success_event(test_database):
     assert "amount" not in event.details
 
 
+# Day 16 - 验证未知工具失败时自动记录执行事件
+# 失败结果和错误类型都必须写入临时 SQLite 数据库
+def test_execute_tool_records_failed_event(test_database):
+
+    # 第一步：调用一个没有注册的工具
+    result = execute_tool(
+        name="delete_order",
+        args={},
+        call_id="call-failed-001"
+    )
+
+    # 第二步：验证工具执行结果
+    assert result.success is False
+    assert result.error == "UNKNOWN_TOOL"
+
+    # 第三步：查询自动生成的执行事件
+    # 当前阶段暂时使用 call_id 作为 task_id
+    events = find_execution_events("call-failed-001")
+
+    # 失败的调用也必须产生一条事件
+    assert len(events) == 1
+
+    event = events[0]
+
+    # 第四步：验证失败事件的核心字段
+    assert event.event_type == "tool_result"
+    assert event.task_id == "call-failed-001"
+    assert event.tool_name == "delete_order"
+    assert event.status == "failed"
+    assert event.error_type == "UNKNOWN_TOOL"
+
+    # 第五步：即使失败，也应该记录耗时
+    assert event.latency_ms is not None
+    assert event.latency_ms >= 0
+
+    # 第六步：验证安全摘要
+    assert event.details == {
+        "call_id": "call-failed-001",
+        "success": False
+    }
