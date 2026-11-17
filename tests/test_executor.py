@@ -4,7 +4,8 @@ from agent.executor import execute_tool
 from app.models import ToolResult
 
 #测试正常查询工单
-def test_execute_get_order_success():
+#使用临时数据库，不依赖本地 agent.db 中是否恰好存在这条订单
+def test_execute_get_order_success(test_database):
     result = execute_tool(
         name="get_order",
         args={"order_id":"ORD-001"},
@@ -61,7 +62,8 @@ def test_execute_creat_ticket_success(test_database):
 
 
 #测试未知工具必须被拒绝
-def test_execute_unknown_tool():
+#使用临时数据库，执行器写入的事件不落到正式库
+def test_execute_unknown_tool(test_database):
     result = execute_tool(
         name = "delete_order",
         args={},
@@ -71,7 +73,8 @@ def test_execute_unknown_tool():
     assert result.error == "UNKNOWN_TOOL"
 
 #测试错误参数被拒绝
-def test_execute_invalid_arguments():
+#使用临时数据库，执行器写入的事件不落到正式库
+def test_execute_invalid_arguments(test_database):
     result = execute_tool(
         name ="get_order",
         args={},
@@ -82,7 +85,8 @@ def test_execute_invalid_arguments():
     assert result.error == "INVALID_ARGUMENTS"
 
 #测试工具内部异常被执行器捕获
-def test_execute_tool_exception(monkeypatch):
+#使用临时数据库，执行器写入的事件不落到正式库
+def test_execute_tool_exception(monkeypatch, test_database):
     #创建一个故意失败的工具
     def broken_tool(call_id,args):
         raise RuntimeError("模拟工具运行异常")
@@ -187,3 +191,128 @@ def test_execute_tool_records_failed_event(test_database):
         "call_id": "call-failed-001",
         "success": False
     }
+
+
+# Day 16 - 验证参数校验失败时自动记录执行事件
+# 即使工具没有真正执行，也应该保存失败原因
+def test_execute_tool_records_invalid_arguments_event(test_database):
+
+    # 第一步：调用已注册工具，但故意遗漏必需参数
+    result = execute_tool(
+        name="get_order",
+        args={},
+        call_id="call-invalid-001"
+    )
+
+    # 第二步：验证执行器返回参数错误
+    assert result.success is False
+    assert result.error == "INVALID_ARGUMENTS"
+
+    # 第三步：查询执行器自动保存的事件
+    events = find_execution_events("call-invalid-001")
+
+    # 参数校验失败也必须产生一条事件
+    assert len(events) == 1
+
+    event = events[0]
+
+    # 第四步：验证事件类型及失败状态
+    assert event.event_type == "tool_result"
+    assert event.tool_name == "get_order"
+    assert event.status == "failed"
+    assert event.error_type == "INVALID_ARGUMENTS"
+
+    # 第五步：验证失败调用同样记录耗时
+    assert event.latency_ms is not None
+    assert event.latency_ms >= 0
+
+    # 第六步：只记录安全摘要，不记录原始参数
+    assert event.details == {
+        "call_id": "call-invalid-001",
+        "success": False
+    }
+
+
+# Day 16 - 验证工具执行异常也会自动生成失败事件
+# 使用 monkeypatch 模拟工具故障，不需要真的破坏数据库
+def test_execute_tool_records_exception_event(test_database, monkeypatch):
+
+    # 第一步：定义一个始终抛出异常的模拟工具
+    def broken_tool(call_id, args):
+        raise RuntimeError("模拟工具内部故障")
+
+    # 第二步：临时替换注册表中的工具查找函数
+    # 只有本次测试受到影响，结束后 pytest 会自动恢复
+    monkeypatch.setattr(
+        "agent.executor.get_tool",
+        lambda name: broken_tool
+    )
+
+    # 第三步：调用执行器，触发模拟故障
+    result = execute_tool(
+        name="get_order",
+        args={"order_id": "ORD-001"},
+        call_id="call-exception-001"
+    )
+
+    # 第四步：验证异常被统一转换为工具失败结果
+    assert result.success is False
+    assert result.error == "TOOL_EXECUTION_ERROR"
+
+    # 第五步：查询执行器自动保存的事件
+    events = find_execution_events("call-exception-001")
+
+    # 工具发生异常，也必须产生一条事件
+    assert len(events) == 1
+
+    event = events[0]
+
+    # 第六步：验证事件的失败类型
+    assert event.event_type == "tool_result"
+    assert event.tool_name == "get_order"
+    assert event.status == "failed"
+    assert event.error_type == "TOOL_EXECUTION_ERROR"
+
+    # 第七步：验证异常发生前的耗时也被记录
+    assert event.latency_ms is not None
+    assert event.latency_ms >= 0
+
+    # 第八步：事件中不保存内部异常文本或原始业务参数
+    assert event.details == {
+        "call_id": "call-exception-001",
+        "success": False
+    }
+
+
+# Day 16 - 验证事件写入失败不会影响工具执行结果
+# 使用 monkeypatch 模拟事件数据库故障
+def test_event_write_failure_does_not_override_tool_result(
+    test_database,
+    monkeypatch
+):
+
+    # 第一步：定义一个模拟的事件写入故障
+    def broken_event_writer(event):
+        raise RuntimeError("模拟事件数据库不可用")
+
+    # 第二步：临时替换执行器中的事件写入函数
+    monkeypatch.setattr(
+        "agent.executor.insert_execution_event",
+        broken_event_writer
+    )
+
+    # 第三步：执行正常的订单查询
+    result = execute_tool(
+        name="get_order",
+        args={"order_id": "ORD-001"},
+        call_id="call-write-failure-001"
+    )
+
+    # 第四步：事件写入失败，但业务结果必须保持成功
+    assert result.success is True
+    assert result.error is None
+    assert result.data["order_id"] == "ORD-001"
+
+    # 第五步：确认失败的事件没有被保存
+    events = find_execution_events("call-write-failure-001")
+    assert events == []
