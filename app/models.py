@@ -251,3 +251,12 @@ class ExecutionEvent(BaseModel):
     #稳定的错误类型
     error_type: str | None = None
 
+#HTTP工具执行请求模型
+#用于验证客服端交给tools-execute的JSON数据
+class ToolExecuteRequest(BaseModel):
+    #工具名称不为空
+    name:str = Field(min_length=1)
+    #工具参数必须是JSON对象
+    args:dict[str,Any]
+    #工具标识不为空
+    call_id:str = Field(min_length=1)
